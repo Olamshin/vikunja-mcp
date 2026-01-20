@@ -2,9 +2,8 @@
  * Label operations for tasks
  */
 
-import type { StandardTaskResponse, MinimalTask } from '../../types';
-import type { SimpleResponse } from '../../utils/simple-response';
-import { MCPError, ErrorCode } from '../../types';
+import type { StandardTaskResponse, MinimalTask, ResponseMetadata } from '../../types';
+import { MCPError, ErrorCode, createStandardResponse } from '../../types';
 import { getClientFromContext } from '../../client';
 import { isAuthenticationError } from '../../utils/auth-error-handler';
 import { withRetry, RETRY_CONFIG } from '../../utils/retry';
@@ -78,11 +77,25 @@ export async function applyLabels(args: {
       },
     };
 
+    // Create proper metadata for SimpleResponse
+    const metadata: ResponseMetadata = {
+      timestamp: response.metadata?.timestamp || new Date().toISOString(),
+      ...(response.metadata?.affectedFields ? { affectedFields: response.metadata.affectedFields } : {}),
+    };
+
+    // Convert StandardTaskResponse to SimpleResponse using createStandardResponse
+    const simpleResponse = createStandardResponse(
+      response.operation || 'update',
+      response.message || 'Labels applied successfully',
+      response,
+      metadata
+    );
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: formatAorpAsMarkdown(response as unknown as SimpleResponse),
+          text: formatAorpAsMarkdown(simpleResponse),
         },
       ],
     };
@@ -154,11 +167,25 @@ export async function removeLabels(args: {
       },
     };
 
+    // Create proper metadata for SimpleResponse
+    const metadata: ResponseMetadata = {
+      timestamp: response.metadata?.timestamp || new Date().toISOString(),
+      ...(response.metadata?.affectedFields ? { affectedFields: response.metadata.affectedFields } : {}),
+    };
+
+    // Convert StandardTaskResponse to SimpleResponse using createStandardResponse
+    const simpleResponse = createStandardResponse(
+      response.operation || 'update',
+      response.message || 'Labels removed successfully',
+      response,
+      metadata
+    );
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: formatAorpAsMarkdown(response as unknown as SimpleResponse),
+          text: formatAorpAsMarkdown(simpleResponse),
         },
       ],
     };
@@ -208,11 +235,25 @@ export async function listTaskLabels(args: {
       },
     };
 
+    // Create proper metadata for SimpleResponse
+    const metadata: ResponseMetadata = {
+      timestamp: response.metadata?.timestamp || new Date().toISOString(),
+      ...(response.metadata?.count !== undefined ? { count: response.metadata.count } : {}),
+    };
+
+    // Convert StandardTaskResponse to SimpleResponse using createStandardResponse
+    const simpleResponse = createStandardResponse(
+      response.operation || 'get',
+      response.message || 'Labels listed successfully',
+      response,
+      metadata
+    );
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: formatAorpAsMarkdown(response as unknown as SimpleResponse),
+          text: formatAorpAsMarkdown(simpleResponse),
         },
       ],
     };

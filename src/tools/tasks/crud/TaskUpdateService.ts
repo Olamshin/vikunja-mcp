@@ -19,6 +19,7 @@ export interface UpdateTaskArgs {
   id?: number;
   title?: string;
   description?: string;
+  projectId?: number;
   dueDate?: string;
   priority?: number;
   done?: boolean;
@@ -133,6 +134,7 @@ async function analyzeUpdateState(client: VikunjaClient, taskId: number, args: U
   const previousState: Record<string, unknown> = {};
   if (currentTask.title !== undefined) previousState.title = currentTask.title;
   if (currentTask.description !== undefined) previousState.description = currentTask.description;
+  if (currentTask.project_id !== undefined) previousState.project_id = currentTask.project_id;
   if (currentTask.due_date !== undefined) previousState.due_date = currentTask.due_date;
   if (currentTask.priority !== undefined) previousState.priority = currentTask.priority;
   if (currentTask.done !== undefined) previousState.done = currentTask.done;
@@ -144,6 +146,7 @@ async function analyzeUpdateState(client: VikunjaClient, taskId: number, args: U
 
   if (args.title !== undefined && args.title !== currentTask.title) affectedFields.push('title');
   if (args.description !== undefined && args.description !== currentTask.description) affectedFields.push('description');
+  if (args.projectId !== undefined && args.projectId !== currentTask.project_id) affectedFields.push('projectId');
   if (args.dueDate !== undefined && args.dueDate !== currentTask.due_date) affectedFields.push('dueDate');
   if (args.priority !== undefined && args.priority !== currentTask.priority) affectedFields.push('priority');
   if (args.done !== undefined && args.done !== currentTask.done) affectedFields.push('done');
@@ -169,6 +172,7 @@ function buildUpdateData(currentTask: Task, args: UpdateTaskArgs): Task {
     // Override with any provided updates
     ...(args.title !== undefined && { title: args.title }),
     ...(args.description !== undefined && { description: args.description }),
+    ...(args.projectId !== undefined && { project_id: args.projectId }),
     ...(args.dueDate !== undefined && { due_date: args.dueDate }),
     ...(args.priority !== undefined && { priority: args.priority }),
     ...(args.done !== undefined && { done: args.done }),
@@ -192,13 +196,45 @@ function buildUpdateData(currentTask: Task, args: UpdateTaskArgs): Task {
 }
 
 /**
- * Updates task labels with authentication error handling
+ * Updates task labels with diff calculation and authentication error handling.
+ * Uses individual add/remove operations as the bulk endpoint may not work reliably.
  */
-async function updateTaskLabels(client: VikunjaClient, taskId: number, labelIds: number[]): Promise<void> {
+async function updateTaskLabels(client: VikunjaClient, taskId: number, newLabelIds: number[]): Promise<void> {
   try {
-    await client.tasks.updateTaskLabels(taskId, {
-      label_ids: labelIds,
-    });
+    // Get current labels to calculate diff
+    const currentTask = await client.tasks.getTask(taskId);
+    const currentLabelIds = currentTask.labels?.map((l) => l.id).filter((id): id is number => id !== undefined) || [];
+
+    // Calculate which labels to add and remove
+    const toAdd = newLabelIds.filter((id: number) => !currentLabelIds.includes(id));
+    const toRemove = currentLabelIds.filter((id: number) => !newLabelIds.includes(id));
+
+    // Add new labels first
+    for (const labelId of toAdd) {
+      try {
+        await client.tasks.addLabelToTask(taskId, {
+          task_id: taskId,
+          label_id: labelId,
+        });
+      } catch (addError) {
+        if (isAuthenticationError(addError)) {
+          throw new MCPError(ErrorCode.API_ERROR, AUTH_ERROR_MESSAGES.LABEL_UPDATE);
+        }
+        throw addError;
+      }
+    }
+
+    // Remove old labels
+    for (const labelId of toRemove) {
+      try {
+        await client.tasks.removeLabelFromTask(taskId, labelId);
+      } catch (removeError) {
+        if (isAuthenticationError(removeError)) {
+          throw new MCPError(ErrorCode.API_ERROR, AUTH_ERROR_MESSAGES.LABEL_UPDATE);
+        }
+        throw removeError;
+      }
+    }
   } catch (labelError) {
     // Check if it's an auth error
     if (isAuthenticationError(labelError)) {
